@@ -5,6 +5,7 @@ require "logstash/namespace"
 require "logstash/timestamp"
 require "logstash/plugin_mixins/aws_config"
 require "logstash/errors"
+require 'logstash/inputs/s3sqs/patch'
 
 # Get logs from AWS s3 buckets as issued by an object-created event via sqs.
 #
@@ -71,6 +72,13 @@ require "logstash/errors"
 #       ]
 #   }
 #
+
+# Forcibly load all modules marked to be lazily loaded.
+#
+# It is recommended that this is called prior to launching threads. See
+# https://aws.amazon.com/blogs/developer/threading-with-the-aws-sdk-for-ruby/.
+Aws.eager_autoload!
+
 class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
 
@@ -89,7 +97,7 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
 
   attr_reader :poller
   attr_reader :s3
-
+  
   def register
     require "aws-sdk"
     @logger.info("Registering SQS input", :queue => @queue)
@@ -97,6 +105,7 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
   end
 
   def setup_queue
+    
     aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
     queue_url = aws_sqs_client.get_queue_url(:queue_name =>  @queue)[:queue_url]
     @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
@@ -159,8 +168,8 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
                 @codec.decode(line) do |event|
                   decorate(event)
 
-                  event['[@metadata][s3_bucket_name]'] = record['s3']['bucket']['name']
-                  event['[@metadata][s3_object_key]']  = record['s3']['object']['key']
+                  event.set('[@metadata][s3_bucket_name]', record['s3']['bucket']['name'])
+                  event.set('[@metadata][s3_object_key]', record['s3']['object']['key'])
 
                   queue << event
                 end
